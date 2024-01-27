@@ -84,7 +84,7 @@ use std::sync::Arc;
 use template::Template;
 
 /// Type alias for closures which can be used as value formatters.
-pub type ValueFormatter = dyn Fn(&Value, &mut String) -> Result<()>;
+pub type ValueFormatter = dyn Fn(&Value, &mut String) -> Result<()> + Send + Sync;
 
 /// Appends `value` to `output`, performing HTML-escaping in the process.
 pub fn escape(value: &str, output: &mut String) {
@@ -195,7 +195,7 @@ impl TinyTemplate {
     /// Changes the default formatter from [`format`](fn.format.html) to `formatter`. Usefull in combination with [`format_unescaped`](fn.format_unescaped.html) to deactivate HTML-escaping
     pub fn set_default_formatter<F>(&mut self, formatter: F)
     where
-        F: Fn(&Value, &mut String) -> Result<()> + 'static,
+        F: Fn(&Value, &mut String) -> Result<()> + 'static + Send + Sync,
     {
         self.default_formatter = Arc::from(formatter);
     }
@@ -203,7 +203,7 @@ impl TinyTemplate {
     /// Register the given formatter function under the given name.
     pub fn add_formatter<F>(&mut self, name: String, formatter: F)
     where
-        F: 'static + Fn(&Value, &mut String) -> Result<()>,
+        F: 'static + Fn(&Value, &mut String) -> Result<()> + Send + Sync,
     {
         self.formatters.insert(name, Box::new(formatter));
     }
