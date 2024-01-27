@@ -62,7 +62,7 @@ First, add TinyTemplate and serde-derive to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-tinytemplate = "1.1"
+tinytemplate-async = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 ```
 
@@ -71,7 +71,7 @@ Then add this code to "src.rs":
 ```rust
 use serde::Serialize;
 
-use tinytemplate::TinyTemplate;
+use tinytemplate_async::TinyTemplate;
 use std::error::Error;
 
 #[derive(Serialize)]
@@ -83,13 +83,13 @@ static TEMPLATE : &'static str = "Hello {name}!";
 
 pub fn main() -> Result<(), Box<dyn Error>> {
     let mut tt = TinyTemplate::new();
-    tt.add_template("hello", TEMPLATE)?;
+    tt.add_template("hello".to_string(), TEMPLATE.to_string())?;
 
     let context = Context {
         name: "World".to_string(),
     };
 
-    let rendered = tt.render("hello", &context)?;
+    let rendered = tt.render("hello".to_string(), &context)?;
     println!("{}", rendered);
 
     Ok(())

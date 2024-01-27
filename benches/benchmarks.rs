@@ -1,11 +1,11 @@
 #[macro_use]
 extern crate criterion;
-extern crate tinytemplate;
+extern crate tinytemplate_async;
 #[macro_use]
 extern crate serde_derive;
 
 use criterion::Criterion;
-use tinytemplate::TinyTemplate;
+use tinytemplate_async::TinyTemplate;
 
 static TABLE_SOURCE: &'static str = "<html>
     {{ for row in table }}

@@ -1,17 +1,17 @@
 [package]
-name = "tinytemplate"
-version = "1.2.1"
-authors = ["Brook Heisler <brookheisler@gmail.com>"]
+name = "tinytemplate-async"
+version = "1.0.0"
+authors = ["Sandeep Kumar <sandeepqmar05@gmail.com>"]
 
 description = "Simple, lightweight template engine"
-repository = "https://github.com/bheisler/TinyTemplate"
+repository = "https://github.com/eternalfrustation/TinyTemplateAsync"
 readme = "README.md"
 license = "Apache-2.0 OR MIT"
 keywords = ["template", "html"]
 categories = ["template-engine"]
 
 [badges]
-travis-ci = { repository = "bheisler/TinyTemplate" }
+travis-ci = { repository = "eternalfrustation/TinyTemplate" }
 maintenance = { status = "passively-maintained" }
 
 [dependencies]
