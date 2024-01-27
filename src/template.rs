@@ -8,21 +8,22 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::slice;
+use std::sync::Arc;
 use ValueFormatter;
 
 /// Enum defining the different kinds of records on the context stack.
-enum ContextElement<'render, 'template> {
+enum ContextElement<'render> {
     /// Object contexts shadow everything below them on the stack, because every name is looked up
     /// in this object.
     Object(&'render Value),
     /// Named contexts shadow only one name. Any path that starts with that name is looked up in
     /// this object, and all others are passed on down the stack.
-    Named(&'template str, &'render Value),
+    Named(String, &'render Value),
     /// Iteration contexts shadow one name with the current value of the iteration. They also
     /// store the iteration state. The two usizes are the index of the current value and the length
     /// of the array that we're iterating over.
     Iteration(
-        &'template str,
+        String,
         &'render Value,
         usize,
         usize,
@@ -32,11 +33,11 @@ enum ContextElement<'render, 'template> {
 
 /// Helper struct which mostly exists so that I have somewhere to put functions that access the
 /// rendering context stack.
-struct RenderContext<'render, 'template> {
-    original_text: &'template str,
-    context_stack: Vec<ContextElement<'render, 'template>>,
+struct RenderContext<'render> {
+    original_text: String,
+    context_stack: Vec<ContextElement<'render>>,
 }
-impl<'render, 'template> RenderContext<'render, 'template> {
+impl<'render> RenderContext<'render> {
     /// Look up the given path in the context stack and return the value (if found) or an error (if
     /// not)
     fn lookup(&self, path: PathSlice) -> Result<&'render Value> {
@@ -74,7 +75,14 @@ impl<'render, 'template> RenderContext<'render, 'template> {
 
             match current.get(step) {
                 Some(next) => current = next,
-                None => return Err(lookup_error(self.original_text, step, path, current)),
+                None => {
+                    return Err(lookup_error(
+                        self.original_text.as_str(),
+                        step,
+                        path,
+                        current,
+                    ))
+                }
             }
         }
         Ok(current)
@@ -110,16 +118,16 @@ impl<'render, 'template> RenderContext<'render, 'template> {
 /// Structure representing a parsed template. It holds the bytecode program for rendering the
 /// template as well as the length of the original template string, which is used as a guess to
 /// pre-size the output string buffer.
-pub(crate) struct Template<'template> {
-    original_text: &'template str,
-    instructions: Vec<Instruction<'template>>,
+pub(crate) struct Template {
+    original_text: String,
+    instructions: Vec<Instruction>,
     template_len: usize,
 }
-impl<'template> Template<'template> {
+impl Template {
     /// Create a Template from the given template string.
-    pub fn compile(text: &'template str) -> Result<Template> {
+    pub fn compile(text: String) -> Result<Template> {
         Ok(Template {
-            original_text: text,
+            original_text: text.clone(),
             template_len: text.len(),
             instructions: TemplateCompiler::new(text).compile()?,
         })
@@ -129,9 +137,9 @@ impl<'template> Template<'template> {
     pub fn render(
         &self,
         context: &Value,
-        template_registry: &HashMap<&str, Template>,
-        formatter_registry: &HashMap<&str, Box<ValueFormatter>>,
-        default_formatter: &ValueFormatter,
+        template_registry: &HashMap<String, Template>,
+        formatter_registry: &HashMap<String, Box<ValueFormatter>>,
+        default_formatter: Arc<ValueFormatter>,
     ) -> Result<String> {
         // The length of the original template seems like a reasonable guess at the length of the
         // output.
@@ -150,14 +158,14 @@ impl<'template> Template<'template> {
     pub fn render_into(
         &self,
         context: &Value,
-        template_registry: &HashMap<&str, Template>,
-        formatter_registry: &HashMap<&str, Box<ValueFormatter>>,
-        default_formatter: &ValueFormatter,
+        template_registry: &HashMap<String, Template>,
+        formatter_registry: &HashMap<String, Box<ValueFormatter>>,
+        default_formatter: Arc<ValueFormatter>,
         output: &mut String,
     ) -> Result<()> {
         let mut program_counter = 0;
         let mut render_context = RenderContext {
-            original_text: self.original_text,
+            original_text: self.original_text.clone(),
             context_stack: vec![ContextElement::Object(context)],
         };
 
@@ -204,10 +212,14 @@ impl<'template> Template<'template> {
                         Some(formatter) => {
                             let formatter_result = formatter(value_to_render, output);
                             if let Err(err) = formatter_result {
-                                return Err(called_formatter_error(self.original_text, name, err));
+                                return Err(called_formatter_error(
+                                    self.original_text.as_str(),
+                                    name,
+                                    err,
+                                ));
                             }
                         }
-                        None => return Err(unknown_formatter(self.original_text, name)),
+                        None => return Err(unknown_formatter(self.original_text.as_str(), name)),
                     }
                     program_counter += 1;
                 }
@@ -243,7 +255,7 @@ impl<'template> Template<'template> {
                     let context_value = render_context.lookup(path)?;
                     render_context
                         .context_stack
-                        .push(ContextElement::Named(name, context_value));
+                        .push(ContextElement::Named(name.clone(), context_value));
                     program_counter += 1;
                 }
                 Instruction::PushIterationContext(path, name) => {
@@ -251,23 +263,25 @@ impl<'template> Template<'template> {
                     // following Iterate instruction to set the index and value properly.
                     let first = path.first().unwrap();
                     let context_value = match first {
-                        PathStep::Name("@root") => render_context.lookup_root()?,
+                        PathStep::Name(x) if x.as_str() == "@root" => {
+                            render_context.lookup_root()?
+                        }
                         PathStep::Name(other) if other.starts_with('@') => {
-                            return Err(not_iterable_error(self.original_text, path))
+                            return Err(not_iterable_error(self.original_text.as_str(), path))
                         }
                         _ => render_context.lookup(path)?,
                     };
                     match context_value {
                         Value::Array(ref arr) => {
                             render_context.context_stack.push(ContextElement::Iteration(
-                                name,
+                                name.clone(),
                                 &Value::Null,
                                 ::std::usize::MAX,
                                 arr.len(),
                                 arr.iter(),
                             ))
                         }
-                        _ => return Err(not_iterable_error(self.original_text, path)),
+                        _ => return Err(not_iterable_error(self.original_text.as_str(), path)),
                     };
                     program_counter += 1;
                 }
@@ -305,18 +319,23 @@ impl<'template> Template<'template> {
                                 context_value,
                                 template_registry,
                                 formatter_registry,
-                                default_formatter,
+                                default_formatter.clone(),
                                 output,
                             );
                             if let Err(err) = called_templ_result {
                                 return Err(called_template_error(
-                                    self.original_text,
+                                    self.original_text.as_str(),
                                     template_name,
                                     err,
                                 ));
                             }
                         }
-                        None => return Err(unknown_template(self.original_text, template_name)),
+                        None => {
+                            return Err(unknown_template(
+                                self.original_text.as_str(),
+                                template_name,
+                            ))
+                        }
                     }
                     program_counter += 1;
                 }
@@ -332,7 +351,7 @@ impl<'template> Template<'template> {
             Value::Number(n) => match n.as_f64() {
                 Some(float) => float != 0.0,
                 None => {
-                    return Err(truthiness_error(self.original_text, path));
+                    return Err(truthiness_error(self.original_text.as_str(), path));
                 }
             },
             Value::String(s) => !s.is_empty(),
@@ -348,11 +367,11 @@ mod test {
     use super::*;
     use compiler::TemplateCompiler;
 
-    fn compile(text: &'static str) -> Template<'static> {
+    fn compile(text: &'static str) -> Template {
         Template {
-            original_text: text,
+            original_text: text.to_string(),
             template_len: text.len(),
-            instructions: TemplateCompiler::new(text).compile().unwrap(),
+            instructions: TemplateCompiler::new(text.to_string()).compile().unwrap(),
         }
     }
 
@@ -385,9 +404,9 @@ mod test {
         ::serde_json::to_value(&ctx).unwrap()
     }
 
-    fn other_templates() -> HashMap<&'static str, Template<'static>> {
+    fn other_templates() -> HashMap<String, Template> {
         let mut map = HashMap::new();
-        map.insert("my_macro", compile("{value}"));
+        map.insert("my_macro".to_string(), compile("{value}"));
         map
     }
 
@@ -398,9 +417,9 @@ mod test {
         Ok(())
     }
 
-    fn formatters() -> HashMap<&'static str, Box<ValueFormatter>> {
-        let mut map = HashMap::<&'static str, Box<ValueFormatter>>::new();
-        map.insert("my_formatter", Box::new(format));
+    fn formatters() -> HashMap<String, Box<ValueFormatter>> {
+        let mut map = HashMap::<String, Box<ValueFormatter>>::new();
+        map.insert("my_formatter".to_string(), Box::new(format));
         map
     }
 
@@ -419,7 +438,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("Hello!", &string);
@@ -436,7 +455,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("5", &string);
@@ -453,7 +472,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("The number of the day is 10.", &string);
@@ -470,7 +489,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("Hello!", &string);
@@ -487,7 +506,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("", &string);
@@ -504,7 +523,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("Hello!", &string);
@@ -521,7 +540,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("Goodbye!", &string);
@@ -538,7 +557,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("", &string);
@@ -555,7 +574,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("Hello!", &string);
@@ -572,7 +591,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("Goodbye!", &string);
@@ -589,7 +608,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("Hello!", &string);
@@ -608,7 +627,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("Hi, Hello!", &string);
@@ -625,7 +644,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("10 5", &string);
@@ -642,7 +661,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("123", &string);
@@ -659,7 +678,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("012", &string);
@@ -677,7 +696,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("0", &string);
@@ -695,7 +714,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("2", &string);
@@ -712,7 +731,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("151", &string);
@@ -729,7 +748,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("10", &string);
@@ -746,7 +765,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("{10}", &string);
@@ -763,7 +782,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap_err();
     }
@@ -779,7 +798,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("1:&lt; 2:&gt; 3:&amp; 4:&#39; 5:&quot;", &string);
@@ -791,13 +810,13 @@ mod test {
         let context = context();
         let template_registry = other_templates();
         let mut formatter_registry = formatters();
-        formatter_registry.insert("unescaped", Box::new(::format_unescaped));
+        formatter_registry.insert("unescaped".to_string(), Box::new(::format_unescaped));
         let string = template
             .render(
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("1:< 2:> 3:& 4:' 5:\"", &string);
@@ -815,7 +834,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("Hello World!", &string);
@@ -833,7 +852,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("Hello World!", &string);
@@ -851,7 +870,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("foobar", &string);
@@ -869,7 +888,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("not truthy", &string);
@@ -887,7 +906,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("truthy", &string);
@@ -910,7 +929,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("456123", &string);
@@ -936,7 +955,7 @@ mod test {
                 &context,
                 &template_registry,
                 &formatter_registry,
-                &default_formatter(),
+                Arc::from(default_formatter()),
             )
             .unwrap();
         assert_eq!("456123", &string);

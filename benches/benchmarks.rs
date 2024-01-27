@@ -34,14 +34,16 @@ fn parse(criterion: &mut Criterion) {
     criterion.bench_function("parse-table", |b| {
         b.iter(|| {
             let mut tt = TinyTemplate::new();
-            tt.add_template("table", TABLE_SOURCE).unwrap()
+            tt.add_template("table".to_string(), TABLE_SOURCE.to_string())
+                .unwrap()
         });
     });
 }
 
 fn render(criterion: &mut Criterion) {
     let mut tt = TinyTemplate::new();
-    tt.add_template("table", TABLE_SOURCE).unwrap();
+    tt.add_template("table".to_string(), TABLE_SOURCE.to_string())
+        .unwrap();
 
     criterion.bench_function_over_inputs(
         "render-table",

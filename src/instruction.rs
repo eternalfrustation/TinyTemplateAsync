@@ -11,11 +11,11 @@ use std::ops::Deref;
 
 /// Enum for a step in a path which optionally contains a parsed index.
 #[derive(Eq, PartialEq, Debug, Clone)]
-pub(crate) enum PathStep<'template> {
-    Name(&'template str),
-    Index(&'template str, usize),
+pub(crate) enum PathStep {
+    Name(String),
+    Index(String, usize),
 }
-impl<'template> Deref for PathStep<'template> {
+impl Deref for PathStep {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
@@ -27,35 +27,35 @@ impl<'template> Deref for PathStep<'template> {
 }
 
 /// Sequence of named steps used for looking up values in the context
-pub(crate) type Path<'template> = Vec<PathStep<'template>>;
+pub(crate) type Path = Vec<PathStep>;
 
 /// Path, but as a slice.
-pub(crate) type PathSlice<'a, 'template> = &'a [PathStep<'template>];
+pub(crate) type PathSlice<'a> = &'a [PathStep];
 
 /// Enum representing the bytecode instructions.
 #[derive(Eq, PartialEq, Debug, Clone)]
-pub(crate) enum Instruction<'template> {
+pub(crate) enum Instruction {
     /// Emit a literal string into the output buffer
-    Literal(&'template str),
+    Literal(String),
 
     /// Look up the value for the given path and render it into the output buffer using the default
     /// formatter
-    Value(Path<'template>),
+    Value(Path),
 
     /// Look up the value for the given path and pass it to the formatter with the given name
-    FormattedValue(Path<'template>, &'template str),
+    FormattedValue(Path, String),
 
     /// Look up the value at the given path and jump to the given instruction index if that value
     /// is truthy (if the boolean is true) or falsy (if the boolean is false)
-    Branch(Path<'template>, bool, usize),
+    Branch(Path, bool, usize),
 
     /// Push a named context on the stack, shadowing only that name.
-    PushNamedContext(Path<'template>, &'template str),
+    PushNamedContext(Path, String),
 
     /// Push an iteration context on the stack, shadowing the given name with the current value from
     /// the vec pointed to by the path. The current value will be updated by the Iterate instruction.
     /// This is always generated before an Iterate instruction which actually starts the iterator.
-    PushIterationContext(Path<'template>, &'template str),
+    PushIterationContext(Path, String),
 
     /// Pop a context off the stack
     PopContext,
@@ -69,7 +69,7 @@ pub(crate) enum Instruction<'template> {
 
     /// Look up the named template and render it into the output buffer with the value pointed to
     /// by the path as its context.
-    Call(&'template str, Path<'template>),
+    Call(String, Path),
 }
 
 /// Convert a path back into a dotted string.

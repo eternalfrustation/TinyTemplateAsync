@@ -224,7 +224,7 @@ pub(crate) fn called_formatter_error(source: &str, formatter_name: &str, err: Er
 /// Find the line number and column of the target string within the source string. Will panic if
 /// target is not a substring of source.
 pub(crate) fn get_offset(source: &str, target: &str) -> (usize, usize) {
-    let offset = target.as_ptr() as isize - source.as_ptr() as isize;
+    let offset = source.find(target).unwrap();
     let to_scan = &source[0..(offset as usize)];
 
     let mut line = 1;
