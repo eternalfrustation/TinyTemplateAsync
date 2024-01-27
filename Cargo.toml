@@ -1,6 +1,6 @@
 [package]
 name = "tinytemplate-async"
-version = "1.0.0"
+version = "1.0.1"
 authors = ["Sandeep Kumar <sandeepqmar05@gmail.com>"]
 
 description = "Simple, lightweight template engine"
