@@ -138,9 +138,33 @@ impl TemplateCompiler {
                         ));
                     }
                 }
+            // Check for an escaped curly brace and consume text until we find a braace that is not escaped
+            } else if self.remaining_text.starts_with("\\{") {
+                let mut escaped = false;
+                loop {
+                    let mut text = self.consume_text(escaped).clone();
+                    if self.trim_next {
+                        text = text.trim_left().to_string();
+                        self.trim_next = false;
+                    }
+                    escaped = text.ends_with('\\');
+                    if escaped {
+                        text = text[..text.len() - 1].to_string();
+                    }
+                    self.instructions.push(Instruction::Literal(text.clone()));
+
+                    if !escaped {
+                        break;
+                    }
+
+                    if escaped && self.remaining_text.is_empty() {
+                        return Err(self.parse_error(
+                            text.as_str(),
+                            "Found an escape that doesn't escape any character.".to_string(),
+                        ));
+                    }
+                }
             // Values, of the form { dotted.path.to.value.in.context }
-            // Note that it is not (currently) possible to escape curly braces in the templates to
-            // prevent them from being interpreted as values.
             } else if self.remaining_text.starts_with('{') {
                 self.trim_next = false;
 

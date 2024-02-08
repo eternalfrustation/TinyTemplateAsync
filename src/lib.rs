@@ -31,9 +31,9 @@
 //! ```
 //! #[macro_use]
 //! extern crate serde_derive;
-//! extern crate tinytemplate;
+//! extern crate tinytemplate_async;
 //!
-//! use tinytemplate::TinyTemplate;
+//! use tinytemplate_async::TinyTemplate;
 //! use std::error::Error;
 //!
 //! #[derive(Serialize)]
@@ -43,9 +43,9 @@
 //!
 //! static TEMPLATE : &'static str = "Hello {name}!";
 //!
-//! pub fn main() -> Result<(), Box<Error>> {
+//! pub fn main() -> Result<(), Box<dyn Error>> {
 //!     let mut tt = TinyTemplate::new();
-//!     tt.add_template("hello", TEMPLATE)?;
+//!     tt.add_template("hello".to_string(), TEMPLATE.to_string())?;
 //!
 //!     let context = Context {
 //!         name: "World".to_string(),

@@ -960,4 +960,29 @@ mod test {
             .unwrap();
         assert_eq!("456123", &string);
     }
+    #[test]
+    fn test_escaping_blocks() {
+        #[derive(Serialize)]
+        struct Context {
+            foo: HashMap<&'static str, usize>,
+        }
+
+        let template = compile("{ foo.1 }{ foo.0 }\\{foo.0}\\{\n}");
+        let mut foo = HashMap::new();
+        foo.insert("0", 123);
+        foo.insert("1", 456);
+        let context = Context { foo };
+        let context = ::serde_json::to_value(&context).unwrap();
+        let template_registry = other_templates();
+        let formatter_registry = formatters();
+        let string = template
+            .render(
+                &context,
+                &template_registry,
+                &formatter_registry,
+                Arc::from(default_formatter()),
+            )
+            .unwrap();
+        assert_eq!("456123{foo.0}{\n}", &string);
+    }
 }
