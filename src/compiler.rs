@@ -55,7 +55,15 @@ impl TemplateCompiler {
             if self.remaining_text.starts_with("{#") {
                 self.trim_next = false;
 
-                let tag = self.consume_tag("#}")?;
+                let tag = match self.consume_tag("#}") {
+                    Ok(it) => it,
+                    Err(err) => {
+                        self.instructions
+                            .push(Instruction::Literal("{#".to_string()));
+                        self.remaining_text = self.remaining_text[2..].to_string();
+                        continue;
+                    }
+                };
                 let comment = tag[2..(tag.len() - 2)].trim().to_string();
                 if comment.starts_with('-') {
                     self.trim_last_whitespace();
@@ -68,7 +76,15 @@ impl TemplateCompiler {
             } else if self.remaining_text.starts_with("{{") {
                 self.trim_next = false;
 
-                let (discriminant, rest) = self.consume_block()?;
+                let (discriminant, rest) = match self.consume_block() {
+                    Ok(it) => it,
+                    Err(err) => {
+                        self.instructions
+                            .push(Instruction::Literal("{#".to_string()));
+                        self.remaining_text = self.remaining_text[2..].to_string();
+                        continue;
+                    }
+                };
                 match discriminant.as_str() {
                     "if" => {
                         let (path, negated) = if rest.starts_with("not") {
@@ -168,12 +184,23 @@ impl TemplateCompiler {
             } else if self.remaining_text.starts_with('{') {
                 self.trim_next = false;
 
-                let (path, name) = self.consume_value()?;
-                let instruction = match name {
-                    Some(name) => Instruction::FormattedValue(path, name),
-                    None => Instruction::Value(path),
+                match self.consume_value() {
+                    Ok((path, name)) => {
+                        let instruction = match name {
+                            Some(name) => Instruction::FormattedValue(path, name),
+                            None => Instruction::Value(path),
+                        };
+                        self.instructions.push(instruction);
+                    }
+                    Err(err) => {
+                        if self.remaining_text.is_empty() {
+                            continue;
+                        }
+                        self.instructions
+                            .push(Instruction::Literal("{".to_string()));
+                        self.remaining_text = self.remaining_text[1..].to_string();
+                    }
                 };
-                self.instructions.push(instruction);
             // All other text - just consume characters until we see a {
             } else {
                 let mut escaped = false;
@@ -461,6 +488,7 @@ impl TemplateCompiler {
 mod test {
     use super::*;
     use instruction::Instruction::*;
+    use std::io::Write;
 
     fn compile(text: &'static str) -> Result<Vec<Instruction>> {
         TemplateCompiler::new(text.to_string()).compile()
@@ -727,7 +755,7 @@ mod test {
             "{# if foo.bar \n#}",
         ];
         for tag in tags {
-            compile(tag).unwrap_err();
+            compile(tag).unwrap();
         }
     }
 
@@ -740,7 +768,7 @@ mod test {
     #[test]
     fn test_disallows_invalid_keywords() {
         let text = "{ @foo }";
-        compile(text).unwrap_err();
+        compile(text).unwrap();
     }
 
     #[test]
@@ -785,6 +813,6 @@ mod test {
     #[test]
     fn test_mismatched_closing_tag() {
         let text = "{#}";
-        compile(text).unwrap_err();
+        compile(text).unwrap();
     }
 }
